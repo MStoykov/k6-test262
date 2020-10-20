@@ -151,6 +151,27 @@ func (*tc39TestCtx) detachArrayBuffer(call goja.FunctionCall) goja.Value {
 	panic(goja.New().NewTypeError("detachArrayBuffer() is called with incompatible argument"))
 }
 
+func (ctx *tc39TestCtx) fail(t testing.TB, name string, strict bool, errStr string) {
+	nameKey := fmt.Sprintf("%s-strict:%v", name, strict)
+	expected, ok := ctx.expectedErrors[nameKey]
+	if ok {
+		if !assert.Equal(t, expected, errStr) {
+			ctx.errorsLock.Lock()
+			fmt.Println("different")
+			fmt.Println(expected)
+			fmt.Println(errStr)
+			ctx.errors[nameKey] = errStr
+			ctx.errorsLock.Unlock()
+		}
+	} else {
+		assert.Empty(t, errStr)
+		ctx.errorsLock.Lock()
+		fmt.Println("no error", name)
+		ctx.errors[nameKey] = errStr
+		ctx.errorsLock.Unlock()
+	}
+}
+
 func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Meta, strict bool) {
 	defer func() {
 		if x := recover(); x != nil {
@@ -175,95 +196,77 @@ func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Me
 		src = "'use strict';\n" + src
 	}
 	early, err := ctx.runTC39Script(name, src, meta.Includes, vm)
+	failf := func(str string, args ...interface{}) {
+		str = fmt.Sprintf(str, args)
+		ctx.fail(t, name, strict, str)
+	}
 
-	nameKey := fmt.Sprint(name+"strict:%s", strict)
 	if err != nil {
-		expected, ok := ctx.expectedErrors[nameKey]
-		if ok {
-			if !assert.Equal(t, expected, err.Error()) {
-				ctx.errorsLock.Lock()
-				fmt.Println("different")
-				fmt.Println(expected)
-				fmt.Println(err.Error())
-				ctx.errors[nameKey] = err.Error()
-				ctx.errorsLock.Unlock()
+		if meta.Negative.Type == "" {
+			if err, ok := err.(*goja.Exception); ok {
+				if err.Value() == ignorableTestError {
+					t.Skip("Test threw IgnorableTestError")
+				}
 			}
+			failf("%s: %v", name, err)
+			return
 		} else {
-			assert.NoError(t, err)
-			ctx.errorsLock.Lock()
-			fmt.Println("no error", name)
-			ctx.errors[nameKey] = err.Error()
-			ctx.errorsLock.Unlock()
-		}
+			if meta.Negative.Phase == "early" && !early || meta.Negative.Phase == "runtime" && early {
+				failf("%s: error %v happened at the wrong phase (expected %s)", name, err, meta.Negative.Phase)
+				return
+			}
+			var errType string
 
-		if meta.Negative.Phase == "early" && !early || meta.Negative.Phase == "runtime" && early {
-			t.Fatalf("%s: error %v happened at the wrong phase (expected %s)", name, err, meta.Negative.Phase)
+			switch err := err.(type) {
+			case *goja.Exception:
+				if o, ok := err.Value().(*goja.Object); ok {
+					if c := o.Get("constructor"); c != nil {
+						if c, ok := c.(*goja.Object); ok {
+							errType = c.Get("name").String()
+						} else {
+							failf("%s: error constructor is not an object (%v)", name, o)
+							return
+						}
+					} else {
+						failf("%s: error does not have a constructor (%v)", name, o)
+						return
+					}
+				} else {
+					failf("%s: error is not an object (%v)", name, err.Value())
+					return
+				}
+			case *goja.CompilerSyntaxError:
+				errType = "SyntaxError"
+			case *goja.CompilerReferenceError:
+				errType = "ReferenceError"
+			default:
+				failf("%s: error is not a JS error: %v", name, err)
+				return
+			}
+
+			_ = errType
+			if errType != meta.Negative.Type {
+				// vm.vm.prg.dumpCode(t.Logf)
+				failf("%s: unexpected error type (%s), expected (%s)", name, errType, meta.Negative.Type)
+				return
+			}
 		}
-	} else if _, ok := ctx.expectedErrors[name]; ok {
-		assert.Error(t, err)
-		ctx.errorsLock.Lock()
-		ctx.errors[nameKey] = "no error, remove this entry to disable"
-		ctx.errorsLock.Unlock()
+	} else {
+		if meta.Negative.Type != "" {
+			// vm.vm.prg.dumpCode(t.Logf)
+			failf("%s: Expected error: %v", name, err)
+			return
+		}
 	}
 
 	/*
-		if err != nil {
-			if meta.Negative.Type == "" {
-				if err, ok := err.(*goja.Exception); ok {
-					if err.Value() == ignorableTestError {
-						t.Skip("Test threw IgnorableTestError")
-					}
-				}
-				t.Fatalf("%s: %v", name, err)
-			} else {
-				if meta.Negative.Phase == "early" && !early || meta.Negative.Phase == "runtime" && early {
-					t.Fatalf("%s: error %v happened at the wrong phase (expected %s)", name, err, meta.Negative.Phase)
-				}
-				var errType string
-
-				switch err := err.(type) {
-				case *goja.Exception:
-					if o, ok := err.Value().(*goja.Object); ok {
-						if c := o.Get("constructor"); c != nil {
-							if c, ok := c.(*goja.Object); ok {
-								errType = c.Get("name").String()
-							} else {
-								t.Fatalf("%s: error constructor is not an object (%v)", name, o)
-							}
-						} else {
-							t.Fatalf("%s: error does not have a constructor (%v)", name, o)
-						}
-					} else {
-						t.Fatalf("%s: error is not an object (%v)", name, err.Value())
-					}
-				case *goja.CompilerSyntaxError:
-					errType = "SyntaxError"
-				case *goja.CompilerReferenceError:
-					errType = "ReferenceError"
-				default:
-					t.Fatalf("%s: error is not a JS error: %v", name, err)
-				}
-
-				_ = errType
-					if errType != meta.Negative.Type {
-						vm.vm.prg.dumpCode(t.Logf)
-						t.Fatalf("%s: unexpected error type (%s), expected (%s)", name, errType, meta.Negative.Type)
-					}
-			}
-		} else {
-				if meta.Negative.Type != "" {
-					vm.vm.prg.dumpCode(t.Logf)
-					t.Fatalf("%s: Expected error: %v", name, err)
-				}
+		if vm.vm.sp != 0 {
+			t.Fatalf("sp: %d", vm.vm.sp)
 		}
 
-			if vm.vm.sp != 0 {
-				t.Fatalf("sp: %d", vm.vm.sp)
-			}
-
-			if l := len(vm.vm.iterStack); l > 0 {
-				t.Fatalf("iter stack is not empty: %d", l)
-			}
+		if l := len(vm.vm.iterStack); l > 0 {
+			t.Fatalf("iter stack is not empty: %d", l)
+		}
 	*/
 }
 
@@ -307,7 +310,7 @@ func (ctx *tc39TestCtx) runTC39File(name string, t testing.TB) {
 				}
 		*/
 		if skip {
-			t.Skip("Not ES6 or ES5")
+			t.Skipf("Not ES6 or ES5 esid: %s", meta.Esid)
 		}
 
 		for _, feature := range meta.Features {
@@ -352,7 +355,7 @@ func (ctx *tc39TestCtx) init() {
 	ctx.prgCache = make(map[string]*goja.Program)
 	ctx.errors = make(map[string]string)
 
-	b, err := ioutil.ReadFile("./es6.json")
+	b, err := ioutil.ReadFile("./breaking_test_errors.json")
 	if err != nil {
 		panic(err)
 	}

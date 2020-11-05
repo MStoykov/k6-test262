@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 	"github.com/loadimpact/k6/js/compiler"
 	"github.com/loadimpact/k6/lib"
 	"github.com/loadimpact/k6/lib/testutils"
@@ -235,7 +236,7 @@ func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Me
 					failf("%s: error is not an object (%v)", name, err.Value())
 					return
 				}
-			case *goja.CompilerSyntaxError:
+			case *goja.CompilerSyntaxError, *parser.Error, parser.ErrorList:
 				errType = "SyntaxError"
 			case *goja.CompilerReferenceError:
 				errType = "ReferenceError"

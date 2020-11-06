@@ -42,9 +42,9 @@ var (
 
 	esIdPrefixWhiteList = []string{
 		/*
-				"sec-array",
-			"sec-%typedarray%",
+			"sec-array",
 		*/
+		"sec-%typedarray%",
 		"sec-string",
 		"sec-date",
 		"sec-number",
@@ -149,7 +149,9 @@ func parseTC39File(name string) (*tc39Meta, string, error) {
 
 func (*tc39TestCtx) detachArrayBuffer(call goja.FunctionCall) goja.Value {
 	if obj, ok := call.Argument(0).(*goja.Object); ok {
-		if buf, ok := obj.Export().(*goja.ArrayBuffer); ok {
+		var buf goja.ArrayBuffer
+		if goja.New().ExportTo(obj, &buf) == nil {
+			// if buf, ok := obj.Export().(goja.ArrayBuffer); ok {
 			buf.Detach()
 			return goja.Undefined()
 		}
@@ -179,9 +181,13 @@ func (ctx *tc39TestCtx) fail(t testing.TB, name string, strict bool, errStr stri
 }
 
 func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Meta, strict bool) {
+	failf := func(str string, args ...interface{}) {
+		str = fmt.Sprintf(str, args)
+		ctx.fail(t, name, strict, str)
+	}
 	defer func() {
 		if x := recover(); x != nil {
-			panic(fmt.Sprintf("panic while running %s: %v", name, x))
+			failf("panic while running %s: %v", name, x)
 		}
 	}()
 	vm := goja.New()
@@ -202,10 +208,6 @@ func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Me
 		src = "'use strict';\n" + src
 	}
 	early, err := ctx.runTC39Script(name, src, meta.Includes, vm)
-	failf := func(str string, args ...interface{}) {
-		str = fmt.Sprintf(str, args)
-		ctx.fail(t, name, strict, str)
-	}
 
 	if err != nil {
 		if meta.Negative.Type == "" {

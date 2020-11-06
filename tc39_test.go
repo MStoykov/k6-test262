@@ -41,8 +41,10 @@ var (
 		false)
 
 	esIdPrefixWhiteList = []string{
-		"sec-array",
-		"sec-%typedarray%",
+		/*
+				"sec-array",
+			"sec-%typedarray%",
+		*/
 		"sec-string",
 		"sec-date",
 		"sec-number",
@@ -51,7 +53,10 @@ var (
 		"sec-arraybuffer",
 		"sec-regexp",
 	}
-	featuresBlackList = []string{}
+	featuresBlackList = []string{
+		"BigInt",    // not supported at all
+		"IsHTMLDDA", // not supported at all
+	}
 )
 
 type tc39Test struct {
@@ -298,28 +303,27 @@ func (ctx *tc39TestCtx) runTC39File(name string, t testing.TB) {
 					}
 				}
 			}
-			if skip {
-				if meta.Esid != "" {
-					for _, prefix := range esIdPrefixWhiteList {
-						if strings.HasPrefix(meta.Esid, prefix) &&
-							(len(meta.Esid) == len(prefix) || meta.Esid[len(prefix)] == '.') {
+		*/
 
-							skip = false
-							break
-						}
+		if skip {
+			if meta.Esid != "" {
+				for _, prefix := range esIdPrefixWhiteList {
+					if strings.HasPrefix(meta.Esid, prefix) &&
+						(len(meta.Esid) == len(prefix) || meta.Esid[len(prefix)] == '.') {
+						skip = false
 					}
 				}
-		*/
-		if skip {
-			t.Skipf("Not ES6 or ES5 esid: %s", meta.Esid)
+			}
 		}
-
 		for _, feature := range meta.Features {
 			for _, bl := range featuresBlackList {
 				if feature == bl {
-					t.Skip("Blacklisted feature")
+					t.Skipf("Blacklisted feature %s", feature)
 				}
 			}
+		}
+		if skip {
+			t.Skipf("Not ES6 or ES5 esid: %s", meta.Esid)
 		}
 	}
 

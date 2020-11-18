@@ -53,4 +53,4 @@ jobs:
           git fetch origin --depth=1 72154b17fc99a26e79b2586960f059360d4ce43d
           git reset --hard 72154b17fc99a26e79b2586960f059360d4ce43d
           cd -
-          go test
+          go test -timeout 1h

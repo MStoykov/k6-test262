@@ -31,8 +31,6 @@ const (
 var (
 	invalidFormatError = errors.New("Invalid file format")
 
-	// ignorableTestError = newSymbol(stringEmpty)
-
 	sabStub = goja.MustCompile("sabStub.js", `
 		Object.defineProperty(this, "SharedArrayBuffer", {
 			get: function() {
@@ -41,7 +39,7 @@ var (
 		});`,
 		false)
 
-	esIdPrefixWhiteList = []string{
+	esIdPrefixAllowList = []string{
 		/*
 			"sec-array",
 		*/
@@ -55,7 +53,25 @@ var (
 		"sec-regexp",
 	}
 
-	featuresBlackList = []string{
+	es6IdPrefixBlockList = []string{
+		// all of this are browser compatability things
+		"B.2.3.2", // string.anchor
+		"B.2.3.3", // string.big
+		"B.2.3.4", // string.blink
+		"B.2.3.5", // string.bold
+		"B.2.3.6", // string.fixed
+		"B.2.3.7", // string.fontcolor
+		"B.2.3.8", // string.fontsize
+		"B.2.3.9", // string.italics
+		"B.2.3.10", // string.link
+		"B.2.3.11", // string.small
+		"B.2.3.12", // string.strike
+		"B.2.3.13", // string.sub
+		"B.2.3.14", // string.sup
+		"B.2.4", // Date.setYear/getYear
+	}
+
+	featuresBlockList = []string{
 		"BigInt",    // not supported at all
 		"IsHTMLDDA", // not supported at all
 	}
@@ -297,47 +313,40 @@ func (ctx *tc39TestCtx) runTC39File(name string, t testing.TB) {
 		t.Errorf("Could not parse %s: %v", name, err)
 		return
 	}
-	// if meta.Es6id == "" && meta.Es5id == "" {
+
 	if meta.Es6id == "" && meta.Es5id == "" {
-		skip := true
-		/*
-			// t.Logf("%s: Not ES5, skipped", name)
-			if es6WhiteList[name] {
-				skip = false
-			} else {
-				if meta.Es6id != "" {
-					for _, prefix := range es6IdWhiteList {
-						if strings.HasPrefix(meta.Es6id, prefix) &&
-							(len(meta.Es6id) == len(prefix) || meta.Es6id[len(prefix)] == '.') {
-
-							skip = false
-							break
-						}
-					}
-				}
-			}
-		*/
-
-		if skip {
-			if meta.Esid != "" {
-				for _, prefix := range esIdPrefixWhiteList {
-					if strings.HasPrefix(meta.Esid, prefix) &&
-						(len(meta.Esid) == len(prefix) || meta.Esid[len(prefix)] == '.') {
-						skip = false
-					}
+		for _, feature := range meta.Features {
+			for _, bl := range featuresBlockList {
+				if feature == bl {
+					t.Skipf("Blocklisted feature %s", feature)
 				}
 			}
 		}
-		for _, feature := range meta.Features {
-			for _, bl := range featuresBlackList {
-				if feature == bl {
-					t.Skipf("Blacklisted feature %s", feature)
+
+		skip := true
+		if meta.Esid != "" {
+			for _, prefix := range esIdPrefixAllowList {
+				if strings.HasPrefix(meta.Esid, prefix) &&
+					(len(meta.Esid) == len(prefix) || meta.Esid[len(prefix)] == '.') {
+					skip = false
+					break
 				}
 			}
 		}
 		if skip {
 			t.Skipf("Not ES6 or ES5 esid: %s", meta.Esid)
 		}
+	}
+
+	if meta.Es6id != "" {
+		for _, prefix := range es6IdPrefixBlockList {
+			id := meta.Es6id
+			if strings.HasPrefix(id, prefix) &&
+				(len(id) == len(prefix) || id[len(prefix)] == '.') {
+				t.Skipf("Blocklisted es6id %s", meta.Es6id)
+			}
+		}
+
 	}
 
 	var startTime time.Time

@@ -224,7 +224,7 @@ func (ctx *tc39TestCtx) runTC39Test(t testing.TB, name, src string, meta *tc39Me
 	})
 	vm.Set("$262", _262)
 	vm.Set("print", t.Log)
-	if _, err := vm.RunProgram(jslib.GetCoreJS()); err != nil {
+	if err := jslib.AddPolyfills(vm); err != nil{
 		panic(err)
 	}
 	_, err := vm.RunProgram(sabStub)
